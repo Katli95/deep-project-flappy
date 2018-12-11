@@ -6,7 +6,8 @@ import numpy as np
 import pickle
 from pprint import pprint
 from timeit import default_timer as timer
-from abc import ABC, abstractmethod
+import os
+import csv
 
 from collections import deque
 import cv2 #import resize, threshold, THRESH_BINARY, normalize, NORM_MINMAX, imshow
@@ -104,6 +105,10 @@ class FlappyDeepQAgent(FlappyAgent):
         # self.q_table[first_state_index][a] = (1-self.learning_rate)*old_value + self.learning_rate*(
         #     r + self.discount_factor*max(self.q_table[second_state_index]))
         self.replayMem.append((s1, a, r, s2, isEnd))
+
+        if len(self.replayMem) > self.replayMemMaxSize:
+            self.replayMem.popleft()
+
         if len(self.replayMem) > self.observationThreshold:
             batch = random.sample(self.replayMem, self.batchSize)
 
@@ -118,10 +123,10 @@ class FlappyDeepQAgent(FlappyAgent):
 
             self.updatesToNetwork += 1
 
-            if self.updatesToNetwork == 1000:
+            if self.updatesToNetwork % 1000 == 0:
                 self.saveModel()
                 self.updateTarget()
-                self.updatesToNetwork = 0
+                print("Q Network updated {} times".format(self.updatesToNetwork))
 
 
     def training_policy(self, state):
@@ -192,7 +197,7 @@ def show_image(img):
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
-def run_game(nb_episodes, agent, train):
+def run_game(agent, train):
     """ Runs nb_episodes episodes of the game with agent picking the moves.
         An episode of FlappyBird ends with the bird crashing into a pipe or going off screen.
     """
@@ -215,9 +220,10 @@ def run_game(nb_episodes, agent, train):
 
     score = 0
     scores = {}
+    
     startTime = timer()
     frames = 0
-    while nb_episodes > 0:
+    while True:
         frames += 1
         # pick an action
         if train:
@@ -243,18 +249,13 @@ def run_game(nb_episodes, agent, train):
             if score not in scores:
                 scores[score] = 0
             scores[score] += 1
-            if nb_episodes % 500 == 0:
-                print(action)
-                printScores(scores, frames)
+            printScores(scores, frames)
+            logScore(scores, frames)
+            score = 0
+
             env.reset_game()
             current_state = constructStateFromSingleFrame(processImage(env.getScreenGrayscale()))
-            nb_episodes -= 1
-            score = 0
-        # Safety break
-        if( frames > 1000000):
-            break
-        if frames % 1000 == 0:
-            agent.saveModel()
+
     pygame.display.quit()
     printScores(scores, frames)
     print((timer() - startTime) / 60, " minutes")
@@ -272,3 +273,19 @@ def printScores(scores, frames):
             val/total*100) + "% : (" + str(val) + ")"
     pprint(percentage)
     print("Total frames : ", frames)
+
+def logScore(scores, frames):
+        with open("scores.csv", "w") as file:
+            writer = csv.writer(file)
+            if os.stat("scores.csv").st_size == 0:
+                writer.writerow(['Frames',"Average_Score"])
+            avg = getAverageOfScores(scores)
+            writer.writerow([frames,avg])
+        
+def getAverageOfScores(scores):
+    sumOfScores = 0
+    totalEntries = 0
+    for score, frequency in scores.items():
+        totalEntries += frequency
+        sumOfScores += score*frequency
+    return sumOfScores / totalEntries
