@@ -250,7 +250,8 @@ def run_game(agent, train):
                 scores[score] = 0
             scores[score] += 1
             printScores(scores, frames)
-            logScore(scores, frames)
+            if agent.updatesToNetwork > 0:
+                logScore(scores, agent.updatesToNetwork)
             score = 0
 
             env.reset_game()
@@ -275,10 +276,10 @@ def printScores(scores, frames):
     print("Total frames : ", frames)
 
 def logScore(scores, frames):
-        with open("scores.csv", "w") as file:
+        with open("scores.csv", "a", newline='') as file:
             writer = csv.writer(file)
             if os.stat("scores.csv").st_size == 0:
-                writer.writerow(['Frames',"Average_Score"])
+                writer.writerow(['Updates_To_Network',"Average_Score"])
             avg = getAverageOfScores(scores)
             writer.writerow([frames,avg])
         
