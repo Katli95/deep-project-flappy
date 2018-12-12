@@ -10,15 +10,13 @@ import os
 import csv
 
 from collections import deque
-import cv2 #import resize, threshold, THRESH_BINARY, normalize, NORM_MINMAX, imshow
+import cv2
 
-import json
-from keras.initializers import normal, identity
-from keras.models import model_from_json, load_model
-from keras.models import Sequential
+from keras.initializers import normal as normal_initializer
+from keras.models import Sequential, load_model
 from keras.layers.core import Dense, Dropout, Activation, Flatten
-from keras.layers.convolutional import Convolution2D, MaxPooling2D
-from keras.optimizers import SGD , RMSprop
+from keras.layers.convolutional import Convolution2D
+from keras.optimizers import adam
 import tensorflow as tf
 
 reward_structures = {
@@ -79,15 +77,16 @@ class FlappyAgent:
         return random.randint(0, 1)
 
 class FlappyDeepQAgent(FlappyAgent):
-    def __init__(self, reward_values=reward_structures["improvedFlappyAgent"], learning_rate=1e-6, discount_factor = 0.95, initial_epsilon=1, final_epsilon = 0.1, updates_to_epsilon=60000, batch_size=32, reload_model=False, reload_weights=False):
+    def __init__(self, reward_values=reward_structures["improvedFlappyAgent"], learning_rate=1e-5, discount_factor = 0.95, initial_epsilon=1, epsilon_decay_rate=0.9998, mini_epochs=7, training_episodes=20000, batch_size=32, reload_model=False, reload_weights=False):
         self.rewards = reward_values
         self.learningRate = learning_rate
         self.discountFactor = discount_factor
         self.batchSize = batch_size
-        self.finalEpsilon = final_epsilon
         self.epsilon = initial_epsilon
-        self.intiialEpsilon = initial_epsilon
-        self.updatesToEpsilon = updates_to_epsilon
+        self.initialEpsilon = initial_epsilon
+        self.epsilonDecayRate = epsilon_decay_rate
+        self.miniEpochs = mini_epochs
+        self.trainingEpisodes = 20000
         self.replayMem = deque()
         self.observationThreshold = 3000
         self.replayMemMaxSize = 20000
@@ -135,13 +134,11 @@ class FlappyDeepQAgent(FlappyAgent):
             targets[range(self.batchSize), actions] = rewards + (self.discountFactor*np.max(estimated_values, axis=1)*np.invert(isFinal))
             loss = self.QNetwork.train_on_batch(init_states, targets)
 
-            if self.epsilon > self.finalEpsilon:
-                self.epsilon -= np.max([(self.finalEpsilon-self.intiialEpsilon)/self.updatesToEpsilon,self.finalEpsilon])
-
             self.updatesToNetwork += 1
+            self.updateEpsilon()
 
             if self.updatesToNetwork % 1000 == 0:
-                self.saveModel()
+                self.saveModel("RoutineSave")
                 self.updateTarget()
                 print("Q Network updated {} times".format(self.updatesToNetwork))
 
@@ -158,7 +155,7 @@ class FlappyDeepQAgent(FlappyAgent):
             # print("Taking random action")
             retval = random.randint(0,1)
         else:
-            q = self.TargetQNetwork.predict(state)
+            q = self.QNetwork.predict(state)
             if self.printPredictionCnt < 0:
                 print("Exploiting!")
                 pprint(q)
@@ -177,35 +174,40 @@ class FlappyDeepQAgent(FlappyAgent):
         q = self.QNetwork.predict(state)
         return np.argmax(q)
 
-    def saveModel(self):
-        self.QNetwork.save('flappyBirdQNetworkModel.h5')
-        with open("flappyBirdQNetwork.json", "w") as outfile:
-            json.dump(self.QNetwork.to_json(), outfile)
+    def saveModel(self, prefix):
+        self.QNetwork.save("{}-flappyBirdQNetworkModel.h5".format(prefix))
 
     def updateTarget(self):
         self.QNetwork.save_weights("flappyBirdQNetworkWeights.h5", overwrite=True)
         self.TargetQNetwork.load_weights("flappyBirdQNetworkWeights.h5")
 
+    def updateEpsilon(self):
+        newVal = self.initialEpsilon*(self.epsilonDecayRate**self.updatesToNetwork)*(1/2)*(1+np.cos((2*np.pi*self.updatesToNetwork*self.miniEpochs)/self.trainingEpisodes))
+
+        if newVal < self.epsilon:
+            self.saveModel("MinExplore")
+
 
 img_rows , img_cols = 84, 84
 img_channels = 4
 
-def getQNetwork(LEARNING_RATE = 1e-6):
+def getQNetwork(LEARNING_RATE):
+    initializer = normal_initializer(0, 0.01)
     model = Sequential()
-    model.add(Convolution2D(32, 8, strides=4, padding='same',input_shape=(img_rows,img_cols,img_channels)))
+    model.add(Convolution2D(32, (8,8), strides=4, padding='same',input_shape=(img_rows,img_cols,img_channels), kernel_initializer=initializer))
     model.add(Activation('relu'))
-    model.add(Convolution2D(64, 4, strides=2, padding='same'))
+    model.add(Convolution2D(64, (4,4), strides=2, padding='same', kernel_initializer=initializer))
     model.add(Activation('relu'))
-    model.add(Convolution2D(64, 3, strides=1, padding='same'))
+    model.add(Convolution2D(64, (3,3), strides=1, padding='same', kernel_initializer=initializer))
     model.add(Activation('relu'))
     model.add(Flatten())
-    model.add(Dense(512))
+    model.add(Dense(512, kernel_initializer=initializer))
     model.add(Activation('relu'))
-    model.add(Dense(2))
-   
-    rmsprop = RMSprop(lr=LEARNING_RATE, decay=0.9, rho=0.95)
-    model.compile(loss='mse',optimizer=rmsprop)
-    print("We finish building the model")
+    model.add(Dense(2, kernel_initializer=initializer))
+    model.add(Activation("linear"))
+
+    opt_adam = adam(lr=LEARNING_RATE)
+    model.compile(loss='mse',optimizer=opt_adam)
     return model
 
 def processImage(rawImg):
@@ -238,6 +240,8 @@ def show_image(img):
     cv2.imshow("Debug Image",img)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
+
+bestAverage = 0
 
 def run_game(agent, train):
     """ Runs nb_episodes episodes of the game with agent picking the moves.
@@ -293,7 +297,9 @@ def run_game(agent, train):
             scores[score] += 1
             printScores(scores, frames)
             if agent.updatesToNetwork > 0:
-                logScore(scores, agent.updatesToNetwork)
+                currentAverage = logScore(scores, agent.updatesToNetwork)
+                if currentAverage > bestAverage + 0.2:
+                    agent.saveModel("BestSoFar")
             score = 0
             # return current_state
             env.reset_game()
@@ -324,6 +330,7 @@ def logScore(scores, frames):
                 writer.writerow(['Updates_To_Network',"Average_Score"])
             avg = getAverageOfScores(scores)
             writer.writerow([frames,avg])
+            return avg
         
 def getAverageOfScores(scores):
     sumOfScores = 0
