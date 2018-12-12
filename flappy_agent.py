@@ -14,7 +14,7 @@ import cv2 #import resize, threshold, THRESH_BINARY, normalize, NORM_MINMAX, ims
 
 import json
 from keras.initializers import normal, identity
-from keras.models import model_from_json
+from keras.models import model_from_json, load_model
 from keras.models import Sequential
 from keras.layers.core import Dense, Dropout, Activation, Flatten
 from keras.layers.convolutional import Convolution2D, MaxPooling2D
@@ -79,7 +79,7 @@ class FlappyAgent:
         return random.randint(0, 1)
 
 class FlappyDeepQAgent(FlappyAgent):
-    def __init__(self, reward_values=reward_structures["improvedFlappyAgent"], learning_rate=1e-6, discount_factor = 0.95, initial_epsilon=1, final_epsilon = 0.1, updates_to_epsilon=60000, batch_size=32, reload_weights=False):
+    def __init__(self, reward_values=reward_structures["improvedFlappyAgent"], learning_rate=1e-6, discount_factor = 0.95, initial_epsilon=1, final_epsilon = 0.1, updates_to_epsilon=60000, batch_size=32, reload_model=False):
         self.rewards = reward_values
         self.learningRate = learning_rate
         self.discountFactor = discount_factor
@@ -94,8 +94,9 @@ class FlappyDeepQAgent(FlappyAgent):
         self.observationThreshold = 3000
         self.replayMemMaxSize = 20000
         self.updatesToNetwork = 0
+        self.printPredictionCnt = 500
         if(reload_weights):
-            self.QNetwork.load_weights("flappyBirdQNetwork.h5")
+            self.QNetwork =  load_weights("flappyBirdQNetwork.h5")
             self.TargetQNetwork.load_weights("flappyBirdQNetwork.h5")
 
     def reward_values(self):
@@ -135,8 +136,8 @@ class FlappyDeepQAgent(FlappyAgent):
             self.updatesToNetwork += 1
 
             if self.updatesToNetwork % 1000 == 0:
-                # self.saveModel()
-                # self.updateTarget()
+                self.saveModel()
+                self.updateTarget()
                 print("Q Network updated {} times".format(self.updatesToNetwork))
 
 
@@ -149,15 +150,18 @@ class FlappyDeepQAgent(FlappyAgent):
         #     stateIndex = improved_map_state(state)
         #     return np.argmax(self.q_table[stateIndex])
         if random.random() < self.epsilon:
-            print("Taking random action")
+            # print("Taking random action")
             retval = random.randint(0,1)
         else:
             q = self.TargetQNetwork.predict(state)
-            if(self.updatesToNetwork % 10 == 0):
+            if self.printPredictionCnt < 0:
                 print("Exploiting!")
                 pprint(q)
-                retval = np.argmax(q)
-        print("Taking action: {}".format(retval))
+                if self.printPredictionCnt < -10:
+                    self.printPredictionCnt = 500
+            self.printPredictionCnt -= 1
+            retval = np.argmax(q)
+        # print("Taking action: {}".format(retval))
         return retval
 
 
@@ -169,12 +173,13 @@ class FlappyDeepQAgent(FlappyAgent):
         return np.argmax(q)
 
     def saveModel(self):
-        self.QNetwork.save_weights("flappyBirdQNetwork.h5", overwrite=True)
+        self.QNetwork.save('flappyBirdQNetworkModel.h5')
         with open("flappyBirdQNetwork.json", "w") as outfile:
             json.dump(self.QNetwork.to_json(), outfile)
 
     def updateTarget(self):
-        self.TargetQNetwork.load_weights("flappyBirdQNetwork.h5")
+        self.QNetwork.save_weights("flappyBirdQNetworkWeights.h5", overwrite=True)
+        self.TargetQNetwork.load_weights("flappyBirdQNetworkWeights.h5")
 
 
 img_rows , img_cols = 84, 84
