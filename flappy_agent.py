@@ -79,19 +79,24 @@ class FlappyAgent:
         return random.randint(0, 1)
 
 class FlappyDeepQAgent(FlappyAgent):
-    def __init__(self, reward_values=reward_structures["improvedFlappyAgent"], learning_rate=1e-6, discount_factor = 0.95, initial_epsilon=1, final_epsilon = 0.1, batch_size=32):
+    def __init__(self, reward_values=reward_structures["improvedFlappyAgent"], learning_rate=1e-6, discount_factor = 0.95, initial_epsilon=1, final_epsilon = 0.1, updates_to_epsilon=60000, batch_size=32, reload_weights=False):
         self.rewards = reward_values
         self.learningRate = learning_rate
         self.discountFactor = discount_factor
-        self.finalEpsilon = final_epsilon
         self.batchSize = batch_size
+        self.finalEpsilon = final_epsilon
         self.epsilon = initial_epsilon
+        self.intiialEpsilon = initial_epsilon
+        self.updatesToEpsilon = updates_to_epsilon
         self.QNetwork = getQNetwork(learning_rate)
         self.TargetQNetwork = getQNetwork(learning_rate)
         self.replayMem = deque()
         self.observationThreshold = 3000
         self.replayMemMaxSize = 20000
         self.updatesToNetwork = 0
+        if(reload_weights):
+            self.QNetwork.load_weights("flappyBirdQNetwork.h5")
+            self.TargetQNetwork.load_weights("flappyBirdQNetwork.h5")
 
     def reward_values(self):
         return self.rewards
@@ -105,6 +110,9 @@ class FlappyDeepQAgent(FlappyAgent):
         # self.q_table[first_state_index][a] = (1-self.learning_rate)*old_value + self.learning_rate*(
         #     r + self.discount_factor*max(self.q_table[second_state_index]))
         self.replayMem.append((s1, a, r, s2, isEnd))
+
+        # showState(s1)
+        # showState(s2)
 
         if len(self.replayMem) > self.replayMemMaxSize:
             self.replayMem.popleft()
@@ -120,6 +128,9 @@ class FlappyDeepQAgent(FlappyAgent):
             
             targets[range(self.batchSize), actions] = rewards + (self.discountFactor*np.max(estimated_values, axis=1)*np.invert(isFinal))
             loss = self.QNetwork.train_on_batch(init_states, targets)
+
+            if self.epsilon > self.finalEpsilon:
+                self.epsilon -= np.max([(self.finalEpsilon-self.intiialEpsilon)/self.updatesToEpsilon,self.finalEpsilon])
 
             self.updatesToNetwork += 1
 
@@ -141,13 +152,17 @@ class FlappyDeepQAgent(FlappyAgent):
             return random.randint(0,1)
         else:
             q = self.TargetQNetwork.predict(state)
+            if(self.updatesToNetwork % 10 == 0):
+                print("Exploiting!")
+                pprint(q)
             return np.argmax(q)
+
 
     def policy(self, state):
         # print("state: %s" % state)
         # stateIndex = improved_map_state(state)
         # return np.argmax(self.q_table[stateIndex])
-        q = self.TargetQNetwork.predict(state)
+        q = self.QNetwork.predict(state)
         return np.argmax(q)
 
     def saveModel(self):
@@ -186,11 +201,23 @@ def processImage(img):
     # show_image(img)
     img = cv2.resize(img, (img_rows,img_cols))
     # show_image(img)
-    # normImg = np.zeros((img_rows, img_cols))
-    # cv2.normalize(img, normImg, 0, 1, cv2.NORM_MINMAX)
-    _, normImg = cv2.threshold(img,1,255,cv2.THRESH_BINARY)
-    # show_image(normImg)
+    normImg = img / 255 #np.zeros((img_rows, img_cols))
+    print(normImg)
+    # cv2.normalize(img, normImg, 0, 1)
+    # _, normImg = cv2.threshold(img,1,255,cv2.THRESH_BINARY)
+    show_image(normImg)
     return normImg
+
+def showState(state):
+    numpy_vertical = np.vstack(state)
+    numpy_horizontal = np.hstack(state)
+
+    numpy_vertical_concat = np.concatenate(state, axis=0)
+    numpy_horizontal_concat = np.concatenate(state, axis=1)
+
+    cv2.imshow('Numpy Vertical Concat', numpy_vertical_concat)
+
+    cv2.waitKey()
 
 def show_image(img):
     cv2.imshow("Debug Image",img)
@@ -237,7 +264,7 @@ def run_game(agent, train):
 
         # TODO: for training let the agent observe the current state transition
         next_frame = processImage(env.getScreenGrayscale())
-        next_frame = next_frame.reshape(1, next_frame.shape[0], next_frame.shape[1], 1)
+        next_frame = next_frame.reshape(1,next_frame.shape[0], next_frame.shape[1], 1)
         #Append the new frame to the front of the current state representation to construct the new state
         next_state = np.append(next_frame, current_state[:,:,:,:3], axis=3)
         agent.observe(current_state, action, reward,
@@ -253,9 +280,9 @@ def run_game(agent, train):
             if agent.updatesToNetwork > 0:
                 logScore(scores, agent.updatesToNetwork)
             score = 0
-
-            env.reset_game()
-            current_state = constructStateFromSingleFrame(processImage(env.getScreenGrayscale()))
+            return current_state
+            # env.reset_game()
+            # current_state = constructStateFromSingleFrame(processImage(env.getScreenGrayscale()))
 
     pygame.display.quit()
     printScores(scores, frames)
