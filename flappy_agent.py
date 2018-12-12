@@ -135,8 +135,8 @@ class FlappyDeepQAgent(FlappyAgent):
             self.updatesToNetwork += 1
 
             if self.updatesToNetwork % 1000 == 0:
-                self.saveModel()
-                self.updateTarget()
+                # self.saveModel()
+                # self.updateTarget()
                 print("Q Network updated {} times".format(self.updatesToNetwork))
 
 
@@ -149,13 +149,16 @@ class FlappyDeepQAgent(FlappyAgent):
         #     stateIndex = improved_map_state(state)
         #     return np.argmax(self.q_table[stateIndex])
         if random.random() < self.epsilon:
-            return random.randint(0,1)
+            print("Taking random action")
+            retval = random.randint(0,1)
         else:
             q = self.TargetQNetwork.predict(state)
             if(self.updatesToNetwork % 10 == 0):
                 print("Exploiting!")
                 pprint(q)
-            return np.argmax(q)
+                retval = np.argmax(q)
+        print("Taking action: {}".format(retval))
+        return retval
 
 
     def policy(self, state):
@@ -195,27 +198,29 @@ def getQNetwork(LEARNING_RATE = 1e-6):
     print("We finish building the model")
     return model
 
-def processImage(img):
+def processImage(rawImg):
     # show_image(img)
-    img = img[0:288, 0:412]
-    # show_image(img)
+    img = rawImg[0:288, 0:412]
+    # img = np.zeros((img_rows, img_cols))
     img = cv2.resize(img, (img_rows,img_cols))
+    img = cv2.flip(img, 0)
+    rows,cols = img.shape
+
+    M = cv2.getRotationMatrix2D((cols/2,rows/2),-90,1)
+    img = cv2.warpAffine(img,M,(cols,rows))
     # show_image(img)
-    normImg = img / 255 #np.zeros((img_rows, img_cols))
-    print(normImg)
+    # show_image(img)
+    normImg = img / 255
     # cv2.normalize(img, normImg, 0, 1)
     # _, normImg = cv2.threshold(img,1,255,cv2.THRESH_BINARY)
-    show_image(normImg)
+    # show_image(normImg)
     return normImg
 
 def showState(state):
-    numpy_vertical = np.vstack(state)
-    numpy_horizontal = np.hstack(state)
+    sperate_images = [state[0,:,:,3],state[0,:,:,2],state[0,:,:,1],state[0,:,:,0]]
+    numpy_horizontal_concat = np.concatenate(sperate_images, axis=1)
 
-    numpy_vertical_concat = np.concatenate(state, axis=0)
-    numpy_horizontal_concat = np.concatenate(state, axis=1)
-
-    cv2.imshow('Numpy Vertical Concat', numpy_vertical_concat)
+    cv2.imshow('Numpy Vertical Concat', numpy_horizontal_concat)
 
     cv2.waitKey()
 
@@ -280,9 +285,9 @@ def run_game(agent, train):
             if agent.updatesToNetwork > 0:
                 logScore(scores, agent.updatesToNetwork)
             score = 0
-            return current_state
-            # env.reset_game()
-            # current_state = constructStateFromSingleFrame(processImage(env.getScreenGrayscale()))
+            # return current_state
+            env.reset_game()
+            current_state = constructStateFromSingleFrame(processImage(env.getScreenGrayscale()))
 
     pygame.display.quit()
     printScores(scores, frames)
