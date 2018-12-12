@@ -79,7 +79,7 @@ class FlappyAgent:
         return random.randint(0, 1)
 
 class FlappyDeepQAgent(FlappyAgent):
-    def __init__(self, reward_values=reward_structures["improvedFlappyAgent"], learning_rate=1e-6, discount_factor = 0.95, initial_epsilon=1, final_epsilon = 0.1, updates_to_epsilon=60000, batch_size=32, reload_model=False):
+    def __init__(self, reward_values=reward_structures["improvedFlappyAgent"], learning_rate=1e-6, discount_factor = 0.95, initial_epsilon=1, final_epsilon = 0.1, updates_to_epsilon=60000, batch_size=32, reload_model=False, reload_weights=False):
         self.rewards = reward_values
         self.learningRate = learning_rate
         self.discountFactor = discount_factor
@@ -88,16 +88,21 @@ class FlappyDeepQAgent(FlappyAgent):
         self.epsilon = initial_epsilon
         self.intiialEpsilon = initial_epsilon
         self.updatesToEpsilon = updates_to_epsilon
-        self.QNetwork = getQNetwork(learning_rate)
-        self.TargetQNetwork = getQNetwork(learning_rate)
         self.replayMem = deque()
         self.observationThreshold = 3000
         self.replayMemMaxSize = 20000
         self.updatesToNetwork = 0
         self.printPredictionCnt = 500
-        if(reload_weights):
-            self.QNetwork =  load_weights("flappyBirdQNetwork.h5")
-            self.TargetQNetwork.load_weights("flappyBirdQNetwork.h5")
+        if(reload_model):
+            self.QNetwork = load_model("flappyBirdQNetworkModel.h5")
+            self.TargetQNetwork = load_model("flappyBirdQNetworkModel.h5")
+        else:
+            self.QNetwork = getQNetwork(learning_rate)
+            self.TargetQNetwork = getQNetwork(learning_rate)
+            if reload_weights:
+                self.QNetwork.load_weights("flappyBirdQNetworkWeights.h5")
+                self.TargetQNetwork.load_weights("flappyBirdQNetworkWeights.h5")
+
 
     def reward_values(self):
         return self.rewards
