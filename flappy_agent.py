@@ -292,8 +292,8 @@ def run_game(agent, train, teaching_agent=None):
                 action = agent.policy(current_state)
         # step the environment
         reward = env.act(env.getActionSet()[action])
-        if reward == 1:
-            score += reward
+        if(reward > 0.5):
+            score += 1
 
         # TODO: for training let the agent observe the current state transition
         next_frame = processImage(env.getScreenGrayscale())
