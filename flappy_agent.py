@@ -220,6 +220,15 @@ def getQNetwork(LEARNING_RATE):
     model.compile(loss='mse',optimizer=opt_adam)
     return model
 
+def getRepresentationalQNetwork():
+    model = Sequential()
+    model.add(Dense(9, input_shape=3, kernel_initializer="normal"))
+    model.add(Activation("relu"))
+    model.add(Dense(2, kernel_initializer="normal"))
+
+    model.compile(loss="mse", optimizer="rmsprop")
+    return model
+
 def processImage(rawImg):
     # show_image(img)
     img = rawImg[0:288, 0:412]
