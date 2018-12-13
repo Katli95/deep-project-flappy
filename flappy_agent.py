@@ -26,7 +26,7 @@ reward_structures = {
 }
 
 class FlappyDeepQAgent:
-    def __init__(self, reward_values=reward_structures["improvedFlappyAgent"], learning_rate=1e-5, discount_factor = 0.95, initial_epsilon=1, epsilon_decay_rate=0.9998, mini_epochs=7, training_episodes=20000, batch_size=32, reload_model=False, reload_weights=False):
+    def __init__(self, reward_values=reward_structures["improvedFlappyAgent"], learning_rate=1e-5, discount_factor = 0.95, initial_epsilon=1, epsilon_decay_rate=0.9998, mini_epochs=7, training_episodes=20000, batch_size=32, reload_model=False, reload_weights=False, updates_to_network=0):
         self.rewards = reward_values
         self.learningRate = learning_rate
         self.discountFactor = discount_factor
@@ -38,11 +38,11 @@ class FlappyDeepQAgent:
         self.trainingEpisodes = 20000
         self.replayMem = replayMemory(30000)
         self.observationThreshold = 3000
-        self.updatesToNetwork = 0
+        self.updatesToNetwork = updates_to_network
         self.printCnt = 500
         if(reload_model):
-            self.QNetwork = load_model("flappyBirdQNetworkModel.h5")
-            self.TargetQNetwork = load_model("flappyBirdQNetworkModel.h5")
+            self.QNetwork = load_model("RoutineSave-flappyBirdQNetworkModel.h5")
+            self.TargetQNetwork = load_model("RoutineSave-flappyBirdQNetworkModel.h5")
         else:
             self.QNetwork = getQNetwork(learning_rate)
             self.TargetQNetwork = getQNetwork(learning_rate)
@@ -253,7 +253,7 @@ def show_image(img):
 
 bestAverage = 0
 
-def run_game(agent, train, teaching_agent=None):
+def run_game(agent, train, teaching_agent=None, max_updates=20000, max_episodes=100000):
     """ Runs nb_episodes episodes of the game with agent picking the moves.
         An episode of FlappyBird ends with the bird crashing into a pipe or going off screen.
     """
@@ -280,6 +280,7 @@ def run_game(agent, train, teaching_agent=None):
     
     startTime = timer()
     frames = 0
+    episodes = 0
     while True:
         frames += 1
         # pick an action
@@ -302,12 +303,14 @@ def run_game(agent, train, teaching_agent=None):
         #Append the new frame to the front of the current state representation to construct the new state
         next_state = np.append(next_frame, current_state[:,:,:,:3], axis=3)
         # showState(next_state)
-        agent.observe(current_state, action, reward,
-                      next_state, env.game_over())
+        if train:
+            agent.observe(current_state, action, reward,
+                        next_state, env.game_over())
         current_state = next_state
         
         # reset the environment if the game is over
         if env.game_over():
+            episodes +=1 
             if agent.updatesToNetwork > 0:
                 if score not in scores:
                     scores[score] = 0
@@ -319,6 +322,11 @@ def run_game(agent, train, teaching_agent=None):
                     agent.saveModel("BestSoFar")
             score = 0
             # return current_state
+            if agent.updatesToNetwork > max_updates:
+                print("Model trained for {} updates".format(agent.updatesToNetwork))
+                break
+            if episodes > max_episodes:
+                break
             env.reset_game()
             current_state = constructStateFromSingleFrame(processImage(env.getScreenGrayscale()))
             current_state_representation = env.game.getGameState()
