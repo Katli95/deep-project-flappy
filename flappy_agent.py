@@ -40,7 +40,7 @@ class FlappyDeepQAgent:
         self.observationThreshold = 3000
         self.replayMemMaxSize = 20000
         self.updatesToNetwork = 0
-        self.printPredictionCnt = 500
+        self.printCnt = 500
         if(reload_model):
             self.QNetwork = load_model("flappyBirdQNetworkModel.h5")
             self.TargetQNetwork = load_model("flappyBirdQNetworkModel.h5")
@@ -87,6 +87,8 @@ class FlappyDeepQAgent:
             
             targets[range(self.batchSize), actions] = rewards + (self.discountFactor*np.max(estimated_values, axis=1)*np.invert(isFinal))
             loss = self.QNetwork.train_on_batch(init_states, targets)
+            
+            self.log("\tLoss: {}".format(loss))
 
             self.updatesToNetwork += 1
             self.updateEpsilon()
@@ -107,12 +109,8 @@ class FlappyDeepQAgent:
             retval = random.randint(0,1)
         else:
             q = self.QNetwork.predict(state)
-            if self.printPredictionCnt < 0:
-                print("Exploiting!")
-                pprint(q)
-                if self.printPredictionCnt < -10:
-                    self.printPredictionCnt = 500
-            self.printPredictionCnt -= 1
+            self.log("Exploiting!\m{}".format(*q))
+            self.printCnt -= 1
             retval = np.argmax(q)
         return retval
 
@@ -140,12 +138,21 @@ class FlappyDeepQAgent:
         if newVal < self.epsilon:
             self.saveModel("MinExplore")
 
+        self.epsilon = newVal
+        self.log("Epsilon: {}".format(self.epsilon))
+
+    def log(self, msg):
+        if(self.printCnt < 20):
+            print(msg)
+            if(self.printCnt < 0):
+                self.printCnt = 500
+
 
 img_rows , img_cols = 84, 84
 img_channels = 4
 
 def getQNetwork(LEARNING_RATE):
-    initializer = normal_initializer(0, 0.01)
+    initializer = normal_initializer(0, 0.01, 42)
     model = Sequential()
     model.add(Convolution2D(32, (8,8), strides=4, padding='same',input_shape=(img_rows,img_cols,img_channels), kernel_initializer=initializer))
     model.add(Activation('relu'))
