@@ -36,9 +36,8 @@ class FlappyDeepQAgent:
         self.epsilonDecayRate = epsilon_decay_rate
         self.miniEpochs = mini_epochs
         self.trainingEpisodes = 20000
-        self.replayMem = deque()
+        self.replayMem = replayMemory(30000)
         self.observationThreshold = 3000
-        self.replayMemMaxSize = 20000
         self.updatesToNetwork = 0
         self.printCnt = 500
         if(reload_model):
@@ -71,13 +70,10 @@ class FlappyDeepQAgent:
             subsequent steps in the same episode. That is, s1 in the second call will be s2
             from the first call.
             """
-        self.replayMem.append((s1, a, r, s2, isEnd))
+        self.replayMem.put((s1, a, r, s2, isEnd))
 
-        if len(self.replayMem) > self.replayMemMaxSize:
-            self.replayMem.popleft()
-
-        if len(self.replayMem) > self.observationThreshold:
-            batch = random.sample(self.replayMem, self.batchSize)
+        if self.isTraining():
+            batch = self.replayMem.getBatch(self.batchSize)
 
             init_states, actions, rewards, next_states, isFinal = zip(*batch)
             init_states = np.concatenate(init_states)
@@ -98,6 +94,8 @@ class FlappyDeepQAgent:
                 self.updateTarget()
                 print("Q Network updated {} times".format(self.updatesToNetwork))
 
+    def isTraining(self):
+        return self.replayMem.size() > self.observationThreshold
 
     def training_policy(self, state):
         """ Returns the index of the action that should be done in state while training the agent.
@@ -154,6 +152,9 @@ class replayMemory:
         self.ticks = deque()
         self.maxSize = size//3
 
+    def size(self):
+        return len(self.terminals)+len(self.pipePasses)+len(self.ticks)
+
     def put(self, observation):
         reward = observation[2]
         if reward < 0:
@@ -161,7 +162,7 @@ class replayMemory:
         elif reward > 0.5:
             self.enqeue(self.pipePasses, observation)
         else:
-            self.enqeue(self.tick, observation)
+            self.enqeue(self.ticks, observation)
 
     def enqeue(self, qeue, observation):
         qeue.append(observation)
@@ -185,7 +186,11 @@ class replayMemory:
                 ticks +=1
             else:
                 break
-        return np.concatenate(random.sample(self.ticks, ticks),random.sample(self.terminals, deaths),random.sample(self.pipePasses, passes), axis=0)
+        
+        batch = np.concatenate([random.sample(self.ticks, ticks),random.sample(self.terminals, deaths)])
+        if passes > 0:
+            batch = np.concatenate([batch,random.sample(self.pipePasses, passes)])
+        return batch
         
 
 img_rows , img_cols = 84, 84
@@ -286,17 +291,19 @@ def run_game(agent, train):
         next_frame = next_frame.reshape(1,next_frame.shape[0], next_frame.shape[1], 1)
         #Append the new frame to the front of the current state representation to construct the new state
         next_state = np.append(next_frame, current_state[:,:,:,:3], axis=3)
+        # showState(next_state)
         agent.observe(current_state, action, reward,
                       next_state, env.game_over())
         current_state = next_state
         
         # reset the environment if the game is over
         if env.game_over():
-            if score not in scores:
-                scores[score] = 0
-            scores[score] += 1
-            printScores(scores, frames)
             if agent.updatesToNetwork > 0:
+                if score not in scores:
+                    scores[score] = 0
+                scores[score] += 1
+                printScores(scores, frames)
+
                 currentAverage = logScore(scores, agent.updatesToNetwork)
                 if currentAverage > bestAverage + 0.2:
                     agent.saveModel("BestSoFar")
