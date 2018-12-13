@@ -243,9 +243,9 @@ def getQNetwork(LEARNING_RATE):
 
 def getRepresentationalQNetwork():
     model = Sequential()
-    model.add(Dense(10, input_shape=(5,), kernel_initializer="normal"))
+    model.add(Dense(15, input_shape=(5,), kernel_initializer="normal"))
     model.add(Activation("relu"))
-    model.add(Dense(8, kernel_initializer="normal"))
+    model.add(Dense(10, kernel_initializer="normal"))
     model.add(Activation("relu"))
     model.add(Dense(2, kernel_initializer="normal"))
 
@@ -257,9 +257,11 @@ def parseStateRepresentation(rawState):
     x_diff = rawState["next_pipe_dist_to_player"]
     next_pipe_bot = rawState["next_pipe_bottom_y"]
     next_pipe_top = rawState["next_pipe_top_y"]
-    y_diff = (next_pipe_bot+next_pipe_top)/2 - 8 - rawState["player_y"]
+    y_diff_top = next_pipe_top - rawState["player_y"]
+    y_diff_bot = next_pipe_bot- rawState["player_y"]
     player_vel = rawState["player_vel"]
-    return np.array([[x_diff, y_diff, player_vel, next_pipe_bot, next_pipe_top]])
+    isUnderPipe = x_diff < 26
+    return np.array([[x_diff, y_diff_bot, y_diff_top, player_vel, float(isUnderPipe)]])
 
 def processImage(rawImg):
     # show_image(img)
