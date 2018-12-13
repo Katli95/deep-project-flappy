@@ -186,11 +186,16 @@ class replayMemory:
                 ticks +=1
             else:
                 break
-        
-        batch = np.concatenate([random.sample(self.ticks, ticks),random.sample(self.terminals, deaths)])
+        all_in_batch = []
+        if deaths > 0:
+            all_in_batch.append(random.sample(self.terminals, deaths))
         if passes > 0:
-            batch = np.concatenate([batch,random.sample(self.pipePasses, passes)])
-        return batch
+            all_in_batch.append(random.sample(self.pipePasses, passes))
+        if ticks > 0:
+            all_in_batch.append(random.sample(self.ticks, ticks))
+        return np.concatenate(all_in_batch)
+        
+            
         
 
 img_rows , img_cols = 84, 84
@@ -248,7 +253,7 @@ def show_image(img):
 
 bestAverage = 0
 
-def run_game(agent, train):
+def run_game(agent, train, teaching_agent=None):
     """ Runs nb_episodes episodes of the game with agent picking the moves.
         An episode of FlappyBird ends with the bird crashing into a pipe or going off screen.
     """
@@ -266,7 +271,8 @@ def run_game(agent, train):
               reward_values=reward_values)
 
     env.init()
-    # current_state = env.game.getGameState()
+
+    current_state_representation = env.game.getGameState()
     current_state = constructStateFromSingleFrame(processImage(env.getScreenGrayscale()))
 
     score = 0
@@ -278,7 +284,10 @@ def run_game(agent, train):
         frames += 1
         # pick an action
         if train:
-            action = agent.training_policy(current_state)
+            if teaching_agent is None:
+                action = agent.training_policy(current_state)
+            else:
+                action = teaching_agent.policy(current_state_representation)
         else:
             action = agent.policy(current_state)
         # step the environment
@@ -311,6 +320,7 @@ def run_game(agent, train):
             # return current_state
             env.reset_game()
             current_state = constructStateFromSingleFrame(processImage(env.getScreenGrayscale()))
+            current_state_representation = env.game.getGameState()
 
     pygame.display.quit()
     printScores(scores, frames)
