@@ -147,6 +147,46 @@ class FlappyDeepQAgent:
             if(self.printCnt < 0):
                 self.printCnt = 500
 
+class replayMemory:
+    def __init__(self, size):
+        self.terminals = deque()
+        self.pipePasses = deque()
+        self.ticks = deque()
+        self.maxSize = size//3
+
+    def put(self, observation):
+        reward = observation[2]
+        if reward < 0:
+            self.enqeue(self.terminals, observation)
+        elif reward > 0.5:
+            self.enqeue(self.pipePasses, observation)
+        else:
+            self.enqeue(self.tick, observation)
+
+    def enqeue(self, qeue, observation):
+        qeue.append(observation)
+        if len(qeue) > self.maxSize:
+            qeue.popleft()
+        
+
+    def getBatch(self, batch_size):
+        numItems = batch_size//3
+
+        passes = min(len(self.pipePasses),numItems)
+        deaths = min(len(self.terminals),numItems)
+        ticks = min(len(self.ticks),numItems)
+
+        while sum([passes, deaths, ticks]) < batch_size:
+            if len(self.pipePasses) > passes:
+                passes +=1
+            elif len(self.terminals) > deaths:
+                deaths +=1
+            elif len(self.ticks) > ticks:
+                ticks +=1
+            else:
+                break
+        return np.concatenate(random.sample(self.ticks, ticks),random.sample(self.terminals, deaths),random.sample(self.pipePasses, passes), axis=0)
+        
 
 img_rows , img_cols = 84, 84
 img_channels = 4
