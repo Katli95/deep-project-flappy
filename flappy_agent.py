@@ -26,7 +26,7 @@ reward_structures = {
 }
 
 class FlappyDeepQAgent:
-    def __init__(self, reward_values=reward_structures["improvedFlappyAgent"], learning_rate=1e-5, discount_factor = 0.95, initial_epsilon=1, epsilon_decay_rate=0.9998, mini_epochs=7, training_episodes=20000, batch_size=32, reload_model=False, reload_weights=False, updates_to_network=0):
+    def __init__(self, reward_values=reward_structures["improvedFlappyAgent"], learning_rate=1e-5, discount_factor = 0.95, initial_epsilon=1, epsilon_decay_rate=0.9998, mini_epochs=7, training_episodes=20000, batch_size=32, reload_model=False, reload_weights=False, updates_to_network=0, model_type=""):
         self.rewards = reward_values
         self.learningRate = learning_rate
         self.discountFactor = discount_factor
@@ -35,20 +35,33 @@ class FlappyDeepQAgent:
         self.initialEpsilon = initial_epsilon
         self.epsilonDecayRate = epsilon_decay_rate
         self.miniEpochs = mini_epochs
-        self.trainingEpisodes = 20000
+        self.trainingEpisodes = training_episodes
         self.replayMem = replayMemory(30000)
         self.observationThreshold = 3000
         self.updatesToNetwork = updates_to_network
         self.printCnt = 500
+        self.modelType=model_type
         if(reload_model):
-            self.QNetwork = load_model("RoutineSave-flappyBirdQNetworkModel.h5")
-            self.TargetQNetwork = load_model("RoutineSave-flappyBirdQNetworkModel.h5")
+            if model_type == "":
+                self.QNetwork = load_model("RoutineSave-flappyBirdQNetworkModel.h5")
+                self.TargetQNetwork = load_model("RoutineSave-flappyBirdQNetworkModel.h5")
+            elif model_type == "Representational":
+                self.QNetwork = load_model("RoutineSave-flappyBirdRepresentationalQNetworkModel.h5")
+                self.TargetQNetwork = load_model("RoutineSave-flappyBirdRepresentationalQNetworkModel.h5")
         else:
-            self.QNetwork = getQNetwork(learning_rate)
-            self.TargetQNetwork = getQNetwork(learning_rate)
-            if reload_weights:
-                self.QNetwork.load_weights("flappyBirdQNetworkWeights.h5")
-                self.TargetQNetwork.load_weights("flappyBirdQNetworkWeights.h5")
+            if model_type == "":
+                self.QNetwork = getQNetwork(learning_rate)
+                self.TargetQNetwork = getQNetwork(learning_rate)
+                if reload_weights:
+                    self.QNetwork.load_weights("flappyBirdQNetworkWeights.h5")
+                    self.TargetQNetwork.load_weights("flappyBirdQNetworkWeights.h5")
+            elif model_type == "Representational":
+                self.QNetwork = getRepresentationalQNetwork()
+                self.TargetQNetwork = getRepresentationalQNetwork()
+                if reload_weights:
+                    self.QNetwork.load_weights("flappyBirdRepresentationalQNetworkWeights.h5")
+                    self.TargetQNetwork.load_weights("flappyBirdRepresentationalQNetworkWeights.h5")
+
 
 
     def reward_values(self):
@@ -74,10 +87,13 @@ class FlappyDeepQAgent:
 
         if self.isTraining():
             batch = self.replayMem.getBatch(self.batchSize)
-
-            init_states, actions, rewards, next_states, isFinal = zip(*batch)
+            init_states, actions, rewards, next_states, isFinal = list(zip(*batch))
+            # if self.modelType == "":
             init_states = np.concatenate(init_states)
             next_states = np.concatenate(next_states)
+            # else:
+            #     init_states = np.array(init_states)
+            #     next_states = np.array(next_states)
             targets = self.TargetQNetwork.predict(init_states)
             estimated_values = self.TargetQNetwork.predict(next_states)
             
@@ -124,18 +140,15 @@ class FlappyDeepQAgent:
         return np.argmax(q)
 
     def saveModel(self, prefix):
-        self.QNetwork.save("{}-flappyBirdQNetworkModel.h5".format(prefix))
+        self.QNetwork.save("{}-{}flappyBirdQNetworkModel.h5".format(prefix, self.modelType))
 
     def updateTarget(self):
-        self.QNetwork.save_weights("flappyBirdQNetworkWeights.h5", overwrite=True)
-        self.TargetQNetwork.load_weights("flappyBirdQNetworkWeights.h5")
+        self.QNetwork.save_weights("{}flappyBirdQNetworkWeights.h5".format(self.modelType), overwrite=True)
+        self.TargetQNetwork.load_weights("{}flappyBirdQNetworkWeights.h5".format(self.modelType))
 
     def updateEpsilon(self):
         newVal = self.initialEpsilon*(self.epsilonDecayRate**self.updatesToNetwork)*(1/2)*(1+np.cos((2*np.pi*self.updatesToNetwork*self.miniEpochs)/self.trainingEpisodes))
-
-        if newVal < self.epsilon:
-            self.saveModel("MinExplore")
-
+        print("Epsilon: {}".format(newVal))
         self.epsilon = newVal
         self.log("Epsilon: {}".format(self.epsilon))
 
@@ -222,12 +235,18 @@ def getQNetwork(LEARNING_RATE):
 
 def getRepresentationalQNetwork():
     model = Sequential()
-    model.add(Dense(9, input_shape=3, kernel_initializer="normal"))
+    model.add(Dense(3, input_shape=(3,), kernel_initializer="normal"))
     model.add(Activation("relu"))
     model.add(Dense(2, kernel_initializer="normal"))
 
     model.compile(loss="mse", optimizer="rmsprop")
     return model
+
+def parseStateRepresentation(rawState):
+    x_diff = rawState["next_pipe_dist_to_player"]
+    y_diff = rawState["next_pipe_bottom_y"] - rawState["player_y"]
+    player_vel = rawState["player_vel"]
+    return np.array([[x_diff, y_diff, player_vel]])
 
 def processImage(rawImg):
     # show_image(img)
@@ -282,7 +301,12 @@ def run_game(agent, train, teaching_agent=None, max_updates=20000, max_episodes=
     env.init()
 
     current_state_representation = env.game.getGameState()
-    current_state = constructStateFromSingleFrame(processImage(env.getScreenGrayscale()))
+
+    current_state = None
+    if agent.modelType == "Representational":
+        current_state = parseStateRepresentation(current_state_representation)
+    else: 
+        current_state = constructStateFromSingleFrame(processImage(env.getScreenGrayscale()))
 
     score = 0
     scores = {}
@@ -305,16 +329,23 @@ def run_game(agent, train, teaching_agent=None, max_updates=20000, max_episodes=
         if(reward > 0.5):
             score += 1
 
-        # TODO: for training let the agent observe the current state transition
-        next_frame = processImage(env.getScreenGrayscale())
         current_state_representation = env.game.getGameState()
-        next_frame = next_frame.reshape(1,next_frame.shape[0], next_frame.shape[1], 1)
-        #Append the new frame to the front of the current state representation to construct the new state
-        next_state = np.append(next_frame, current_state[:,:,:,:3], axis=3)
+
+        next_state = None
+        if agent.modelType == "Representational":
+            next_state = parseStateRepresentation(current_state_representation)
+        else: 
+            next_frame = processImage(env.getScreenGrayscale())
+            next_frame = next_frame.reshape(1,next_frame.shape[0], next_frame.shape[1], 1)
+            #Append the new frame to the front of the current state representation to construct the new state
+            next_state = np.append(next_frame, current_state[:,:,:,:3], axis=3)
+
+
         # showState(next_state)
         if train:
             agent.observe(current_state, action, reward,
                         next_state, env.game_over())
+
         current_state = next_state
         
         # reset the environment if the game is over
@@ -337,8 +368,12 @@ def run_game(agent, train, teaching_agent=None, max_updates=20000, max_episodes=
             if episodes > max_episodes:
                 break
             env.reset_game()
-            current_state = constructStateFromSingleFrame(processImage(env.getScreenGrayscale()))
             current_state_representation = env.game.getGameState()
+
+            if agent.modelType == "Representational":
+                current_state = parseStateRepresentation(current_state_representation)
+            else: 
+                current_state = constructStateFromSingleFrame(processImage(env.getScreenGrayscale()))
 
     pygame.display.quit()
     printScores(scores, frames)
