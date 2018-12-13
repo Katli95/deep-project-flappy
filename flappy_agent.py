@@ -283,13 +283,13 @@ def run_game(agent, train, teaching_agent=None):
     while True:
         frames += 1
         # pick an action
-        if train:
-            if teaching_agent is None:
-                action = agent.training_policy(current_state)
+        if teaching_agent is not None:
+            action = teaching_agent.policy(current_state_representation)
+        else: 
+            if train:
+                action = agent.training_policy(current_state)    
             else:
-                action = teaching_agent.policy(current_state_representation)
-        else:
-            action = agent.policy(current_state)
+                action = agent.policy(current_state)
         # step the environment
         reward = env.act(env.getActionSet()[action])
         if reward == 1:
@@ -297,6 +297,7 @@ def run_game(agent, train, teaching_agent=None):
 
         # TODO: for training let the agent observe the current state transition
         next_frame = processImage(env.getScreenGrayscale())
+        current_state_representation = env.game.getGameState()
         next_frame = next_frame.reshape(1,next_frame.shape[0], next_frame.shape[1], 1)
         #Append the new frame to the front of the current state representation to construct the new state
         next_state = np.append(next_frame, current_state[:,:,:,:3], axis=3)
