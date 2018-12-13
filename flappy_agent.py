@@ -26,14 +26,18 @@ reward_structures = {
 }
 
 class FlappyDeepQAgent:
-    def __init__(self, reward_values=reward_structures["improvedFlappyAgent"], learning_rate=1e-5, discount_factor = 0.95, initial_epsilon=1, epsilon_decay_rate=0.9998, mini_epochs=7, training_episodes=20000, batch_size=32, reload_model=False, reload_weights=False, updates_to_network=0, model_type=""):
+    def __init__(self, reward_values=reward_structures["improvedFlappyAgent"], learning_rate=1e-5, discount_factor = 0.95, initial_epsilon=1, epsilon_decay_rate=0.9998, final_epsilon=0.1, mini_epochs=7, training_episodes=20000, batch_size=32, reload_model=False, reload_weights=False, updates_to_network=0, model_type="", epsilon_decay_type="sinusoidal"):
         self.rewards = reward_values
         self.learningRate = learning_rate
         self.discountFactor = discount_factor
         self.batchSize = batch_size
         self.epsilon = initial_epsilon
         self.initialEpsilon = initial_epsilon
-        self.epsilonDecayRate = epsilon_decay_rate
+        self. epsilonDecayType = epsilon_decay_type
+        if epsilon_decay_type == "sinusoidal":
+            self.epsilonDecayRate = epsilon_decay_rate
+        else:
+            self.final_epsilon = final_epsilon
         self.miniEpochs = mini_epochs
         self.trainingEpisodes = training_episodes
         self.replayMem = replayMemory(30000)
@@ -42,12 +46,8 @@ class FlappyDeepQAgent:
         self.printCnt = 500
         self.modelType=model_type
         if(reload_model):
-            if model_type == "":
-                self.QNetwork = load_model("RoutineSave-flappyBirdQNetworkModel.h5")
-                self.TargetQNetwork = load_model("RoutineSave-flappyBirdQNetworkModel.h5")
-            elif model_type == "Representational":
-                self.QNetwork = load_model("RoutineSave-flappyBirdRepresentationalQNetworkModel.h5")
-                self.TargetQNetwork = load_model("RoutineSave-flappyBirdRepresentationalQNetworkModel.h5")
+            self.QNetwork = load_model("RoutineSave-{}flappyBirdQNetworkModel.h5".format(model_type))
+            self.TargetQNetwork = load_model("RoutineSave-{}flappyBirdQNetworkModel.h5".format(model_type))
         else:
             if model_type == "":
                 self.QNetwork = getQNetwork(learning_rate)
@@ -147,8 +147,16 @@ class FlappyDeepQAgent:
         self.TargetQNetwork.load_weights("{}flappyBirdQNetworkWeights.h5".format(self.modelType))
 
     def updateEpsilon(self):
-        newVal = self.initialEpsilon*(self.epsilonDecayRate**self.updatesToNetwork)*(1/2)*(1+np.cos((2*np.pi*self.updatesToNetwork*self.miniEpochs)/self.trainingEpisodes))
-        print("Epsilon: {}".format(newVal))
+        newVal = self.epsilon
+        if self.epsilonDecayType == "sinusoidal":
+            newVal = self.initialEpsilon*(self.epsilonDecayRate**self.updatesToNetwork)*(1/2)*(1+np.cos((2*np.pi*(self.updatesToNetwork%self.trainingEpisodes)*self.miniEpochs)/self.trainingEpisodes))
+        elif self.epsilon > self.final_epsilon:
+            newVal = np.max([self.final_epsilon, self.epsilon - (self.initialEpsilon-self.final_epsilon)/20000])
+        elif self.updatesToNetwork < 100000: 
+            return
+        else:
+             self.epsilon = 0
+             return
         self.epsilon = newVal
         self.log("Epsilon: {}".format(self.epsilon))
 
@@ -235,7 +243,9 @@ def getQNetwork(LEARNING_RATE):
 
 def getRepresentationalQNetwork():
     model = Sequential()
-    model.add(Dense(3, input_shape=(3,), kernel_initializer="normal"))
+    model.add(Dense(10, input_shape=(5,), kernel_initializer="normal"))
+    model.add(Activation("relu"))
+    model.add(Dense(8, kernel_initializer="normal"))
     model.add(Activation("relu"))
     model.add(Dense(2, kernel_initializer="normal"))
 
@@ -243,10 +253,13 @@ def getRepresentationalQNetwork():
     return model
 
 def parseStateRepresentation(rawState):
+    # print(rawState)
     x_diff = rawState["next_pipe_dist_to_player"]
-    y_diff = rawState["next_pipe_bottom_y"] - rawState["player_y"]
+    next_pipe_bot = rawState["next_pipe_bottom_y"]
+    next_pipe_top = rawState["next_pipe_top_y"]
+    y_diff = (next_pipe_bot+next_pipe_top)/2 - 8 - rawState["player_y"]
     player_vel = rawState["player_vel"]
-    return np.array([[x_diff, y_diff, player_vel]])
+    return np.array([[x_diff, y_diff, player_vel, next_pipe_bot, next_pipe_top]])
 
 def processImage(rawImg):
     # show_image(img)
@@ -281,7 +294,7 @@ def show_image(img):
 
 bestAverage = 0
 
-def run_game(agent, train, teaching_agent=None, max_updates=20000, max_episodes=100000):
+def run_game(agent, train, teaching_agent=None):
     """ Runs nb_episodes episodes of the game with agent picking the moves.
         An episode of FlappyBird ends with the bird crashing into a pipe or going off screen.
     """
@@ -361,12 +374,7 @@ def run_game(agent, train, teaching_agent=None, max_updates=20000, max_episodes=
                 if currentAverage > bestAverage + 0.2:
                     agent.saveModel("BestSoFar")
             score = 0
-            # return current_state
-            if agent.updatesToNetwork > max_updates:
-                print("Model trained for {} updates".format(agent.updatesToNetwork))
-                break
-            if episodes > max_episodes:
-                break
+            
             env.reset_game()
             current_state_representation = env.game.getGameState()
 
