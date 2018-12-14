@@ -46,8 +46,8 @@ class FlappyDeepQAgent:
         self.printCnt = 500
         self.modelType=model_type
         if(reload_model):
-            self.QNetwork = load_model("RoutineSave-{}flappyBirdQNetworkModel.h5".format(model_type))
-            self.TargetQNetwork = load_model("RoutineSave-{}flappyBirdQNetworkModel.h5".format(model_type))
+            self.QNetwork = load_model("BestSoFar-{}flappyBirdQNetworkModel.h5".format(model_type))
+            self.TargetQNetwork = load_model("BestSoFar-{}flappyBirdQNetworkModel.h5".format(model_type))
         else:
             if model_type == "":
                 self.QNetwork = getQNetwork(learning_rate)
@@ -83,6 +83,10 @@ class FlappyDeepQAgent:
             subsequent steps in the same episode. That is, s1 in the second call will be s2
             from the first call.
             """
+        if self.modelType == "Representational":
+            s1 = parseStateRepresentation(s1)
+            s2 = parseStateRepresentation(s2)
+
         self.replayMem.put((s1, a, r, s2, isEnd))
 
         if self.isTraining():
@@ -119,6 +123,8 @@ class FlappyDeepQAgent:
 
             training_policy is called once per frame in the game while training
         """
+        if self.modelType == "Representational":
+            state = parseStateRepresentation(state)
         if random.random() < self.epsilon:
             retval = random.randint(0,1)
         else:
@@ -136,6 +142,8 @@ class FlappyDeepQAgent:
             policy is called once per frame in the game (30 times per second in real-time)
             and needs to be sufficiently fast to not slow down the game.
         """
+        if self.modelType == "Representational":
+            state = parseStateRepresentation(state)
         q = self.QNetwork.predict(state)
         return np.argmax(q)
 
@@ -149,7 +157,7 @@ class FlappyDeepQAgent:
     def updateEpsilon(self):
         newVal = self.epsilon
         if self.epsilonDecayType == "sinusoidal":
-            newVal = self.initialEpsilon*(self.epsilonDecayRate**self.updatesToNetwork)*(1/2)*(1+np.cos((2*np.pi*(self.updatesToNetwork%self.trainingEpisodes)*self.miniEpochs)/self.trainingEpisodes))
+            newVal = self.initialEpsilon*(self.epsilonDecayRate**self.updatesToNetwork)*(1/2)*(1+np.cos((2*np.pi*(self.updatesToNetwork)*self.miniEpochs)/self.trainingEpisodes))
         elif self.epsilon > self.final_epsilon:
             newVal = np.max([self.final_epsilon, self.epsilon - (self.initialEpsilon-self.final_epsilon)/20000])
         elif self.updatesToNetwork < 100000: 
@@ -243,9 +251,11 @@ def getQNetwork(LEARNING_RATE):
 
 def getRepresentationalQNetwork():
     model = Sequential()
-    model.add(Dense(15, input_shape=(5,), kernel_initializer="normal"))
+    model.add(Dense(18, input_shape=(6,), kernel_initializer="normal"))
     model.add(Activation("relu"))
-    model.add(Dense(10, kernel_initializer="normal"))
+    model.add(Dense(12, kernel_initializer="normal"))
+    model.add(Activation("relu"))
+    model.add(Dense(8, kernel_initializer="normal"))
     model.add(Activation("relu"))
     model.add(Dense(2, kernel_initializer="normal"))
 
@@ -255,13 +265,17 @@ def getRepresentationalQNetwork():
 def parseStateRepresentation(rawState):
     # print(rawState)
     x_diff = rawState["next_pipe_dist_to_player"]
+    player_y = rawState["player_y"]
     next_pipe_bot = rawState["next_pipe_bottom_y"]
     next_pipe_top = rawState["next_pipe_top_y"]
+    next_next_pipe_bot = rawState["next_next_pipe_bottom_y"]
+    next_next_pipe_top = rawState["next_next_pipe_top_y"]
+    next_next_pipe_mid = (next_next_pipe_bot + next_next_pipe_top)/2
     y_diff_top = next_pipe_top - rawState["player_y"]
     y_diff_bot = next_pipe_bot- rawState["player_y"]
     player_vel = rawState["player_vel"]
-    isUnderPipe = x_diff < 26
-    return np.array([[x_diff, y_diff_bot, y_diff_top, player_vel, float(isUnderPipe)]])
+    isUnderPipe = x_diff < 54
+    return np.array([[x_diff, y_diff_bot, y_diff_top, player_vel,  next_next_pipe_mid, float(isUnderPipe)]])
 
 def processImage(rawImg):
     # show_image(img)
@@ -319,7 +333,7 @@ def run_game(agent, train, teaching_agent=None):
 
     current_state = None
     if agent.modelType == "Representational":
-        current_state = parseStateRepresentation(current_state_representation)
+        current_state = (current_state_representation)
     else: 
         current_state = constructStateFromSingleFrame(processImage(env.getScreenGrayscale()))
 
@@ -348,7 +362,7 @@ def run_game(agent, train, teaching_agent=None):
 
         next_state = None
         if agent.modelType == "Representational":
-            next_state = parseStateRepresentation(current_state_representation)
+            next_state = (current_state_representation)
         else: 
             next_frame = processImage(env.getScreenGrayscale())
             next_frame = next_frame.reshape(1,next_frame.shape[0], next_frame.shape[1], 1)
@@ -365,6 +379,8 @@ def run_game(agent, train, teaching_agent=None):
         
         # reset the environment if the game is over
         if env.game_over():
+            if not train:
+                print(current_state)
             episodes +=1 
             if agent.updatesToNetwork > 0:
                 if score not in scores:
@@ -381,7 +397,7 @@ def run_game(agent, train, teaching_agent=None):
             current_state_representation = env.game.getGameState()
 
             if agent.modelType == "Representational":
-                current_state = parseStateRepresentation(current_state_representation)
+                current_state = (current_state_representation)
             else: 
                 current_state = constructStateFromSingleFrame(processImage(env.getScreenGrayscale()))
 
