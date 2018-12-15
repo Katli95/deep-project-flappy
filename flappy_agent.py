@@ -15,7 +15,8 @@ import cv2
 from keras.initializers import normal as normal_initializer
 from keras.models import Sequential, load_model
 from keras.layers.core import Dense, Dropout, Activation, Flatten
-from keras.layers.convolutional import Convolution2D
+from keras.layers.convolutional import Convolution2D, Convolution3D
+from keras.layers import Concatenate
 from keras.optimizers import adam
 import tensorflow as tf
 
@@ -52,15 +53,15 @@ class FlappyDeepQAgent:
             if model_type == "":
                 self.QNetwork = getQNetwork(learning_rate)
                 self.TargetQNetwork = getQNetwork(learning_rate)
-                if reload_weights:
-                    self.QNetwork.load_weights("flappyBirdQNetworkWeights.h5")
-                    self.TargetQNetwork.load_weights("flappyBirdQNetworkWeights.h5")
+            elif model_type == "Advanced":
+                self.QNetwork = getAdvancedQNetwork(learning_rate)
+                self.TargetQNetwork = getAdvancedQNetwork(learning_rate)
             elif model_type == "Representational":
                 self.QNetwork = getRepresentationalQNetwork()
                 self.TargetQNetwork = getRepresentationalQNetwork()
-                if reload_weights:
-                    self.QNetwork.load_weights("flappyBirdRepresentationalQNetworkWeights.h5")
-                    self.TargetQNetwork.load_weights("flappyBirdRepresentationalQNetworkWeights.h5")
+            elif model_type == "Speed":
+                self.QNetwork = getSpeedNetwork()
+                self.TargetQNetwork = getSpeedNetwork()
 
 
 
@@ -98,8 +99,8 @@ class FlappyDeepQAgent:
             # else:
             #     init_states = np.array(init_states)
             #     next_states = np.array(next_states)
-            targets = self.TargetQNetwork.predict(init_states)
-            estimated_values = self.TargetQNetwork.predict(next_states)
+            targets = self.predict(self.TargetQNetwork, init_states)
+            estimated_values = self.predict(self.TargetQNetwork, next_states)
             
             targets[range(self.batchSize), actions] = rewards + (self.discountFactor*np.max(estimated_values, axis=1)*np.invert(isFinal))
             loss = self.QNetwork.train_on_batch(init_states, targets)
@@ -113,6 +114,16 @@ class FlappyDeepQAgent:
                 self.saveModel("RoutineSave")
                 self.updateTarget()
                 print("Q Network updated {} times".format(self.updatesToNetwork))
+
+    def predict(self, model, states):
+        if self.modelType == "Advanced":
+            return model.predict(map(self.mapStateToAdvancedInput, states))
+        else:
+            return model.predict(states)
+        
+    def mapStateToAdvancedInput(self, state):
+        print(state.shape)
+        exit(1)
 
     def isTraining(self):
         return self.replayMem.size() > self.observationThreshold
@@ -128,9 +139,8 @@ class FlappyDeepQAgent:
         if random.random() < self.epsilon:
             retval = random.randint(0,1)
         else:
-            q = self.QNetwork.predict(state)
+            q = self.predict(self.QNetwork, state)
             self.log("Exploiting!\m{}".format(*q))
-            self.printCnt -= 1
             retval = np.argmax(q)
         return retval
 
@@ -144,7 +154,7 @@ class FlappyDeepQAgent:
         """
         if self.modelType == "Representational":
             state = parseStateRepresentation(state)
-        q = self.QNetwork.predict(state)
+        q = self.predict(self.QNetwork, state)
         return np.argmax(q)
 
     def saveModel(self, prefix):
@@ -169,6 +179,7 @@ class FlappyDeepQAgent:
         self.log("Epsilon: {}".format(self.epsilon))
 
     def log(self, msg):
+        self.printCnt -= 1
         if(self.printCnt < 20):
             print(msg)
             if(self.printCnt < 0):
@@ -228,12 +239,12 @@ class replayMemory:
         
 
 img_rows , img_cols = 84, 84
-img_channels = 4
+stacked_frames = 4
+initializer = normal_initializer(0, 0.01, 42)
 
 def getQNetwork(LEARNING_RATE):
-    initializer = normal_initializer(0, 0.01, 42)
     model = Sequential()
-    model.add(Convolution2D(32, (8,8), strides=4, padding='same',input_shape=(img_rows,img_cols,img_channels), kernel_initializer=initializer))
+    model.add(Convolution2D(32, (8,8), strides=4, padding='same',input_shape=(img_rows,img_cols,stacked_frames), kernel_initializer=initializer))
     model.add(Activation('relu'))
     model.add(Convolution2D(64, (4,4), strides=2, padding='same', kernel_initializer=initializer))
     model.add(Activation('relu'))
@@ -247,6 +258,41 @@ def getQNetwork(LEARNING_RATE):
 
     opt_adam = adam(lr=LEARNING_RATE)
     model.compile(loss='mse',optimizer=opt_adam)
+    return model
+
+def getAdvancedQNetwork(LEARNING_RATE):
+    model = Sequential()
+
+    speed_layers = getSpeedLayers()
+
+    conv2 = Convolution2D(32, (20,10), strides=1, padding='same',input_shape=(img_rows,img_cols,1), kernel_initializer=initializer, activation="relu")
+    conv2 = Convolution2D(64, (4,4), strides=2, padding='same', kernel_initializer=initializer, activation="relu")(conv2)
+    conv2 = Convolution2D(64, (3,3), strides=1, padding='same', kernel_initializer=initializer, activation="relu")(conv2)
+
+    model.add(Activation('relu'))
+    model.add(Flatten())
+    model.add(Dense(512, kernel_initializer=initializer))
+    model.add(Activation('relu'))
+    model.add(Dense(2, kernel_initializer=initializer))
+    model.add(Activation("linear"))
+
+    opt_adam = adam(lr=LEARNING_RATE)
+    model.compile(loss='mse',optimizer=opt_adam)
+    return model
+
+def getSpeedLayers():
+    speed_layers = Convolution3D(32, (8,8,2,1), strides=4, padding='same',input_shape=(img_rows,img_cols,stacked_frames,1), kernel_initializer=initializer, activation="relu", name="identify_positions_1")
+    speed_layers = Convolution3D(32, (4,4,2,1), strides=4, padding='same', kernel_initializer=initializer, activation="relu", name="identify_positions_2")
+    speed_layers = Dense(128, activation="relu", name="calculate_speed")(speed_layers)
+    speed_layers = Dense(1, kernel_initializer=initializer, activation="linear")(speed_layers)
+    return speed_layers
+
+def getSpeedNetwork():
+    model = Sequential()
+    speed_layers = getSpeedLayers()
+    model.add(speed_layers)
+
+    model.compile(loss="mse", optimizer="rmsprop")
     return model
 
 def getRepresentationalQNetwork():
@@ -314,6 +360,8 @@ def run_game(agent, train, teaching_agent=None):
     """ Runs nb_episodes episodes of the game with agent picking the moves.
         An episode of FlappyBird ends with the bird crashing into a pipe or going off screen.
     """
+    
+    independenceCounter = 3
 
     if train:
         reward_values = agent.reward_values()
@@ -346,7 +394,7 @@ def run_game(agent, train, teaching_agent=None):
     while True:
         frames += 1
         # pick an action
-        if teaching_agent is not None:
+        if teaching_agent is not None and independenceCounter > 0:
             action = teaching_agent.policy(current_state_representation)
         else: 
             if train:
@@ -379,9 +427,12 @@ def run_game(agent, train, teaching_agent=None):
         
         # reset the environment if the game is over
         if env.game_over():
+            episodes +=1 
+            independenceCounter -=1
+            if independenceCounter <= -10:
+                independenceCounter = 3
             if not train:
                 print(current_state)
-            episodes +=1 
             if agent.updatesToNetwork > 0:
                 if score not in scores:
                     scores[score] = 0

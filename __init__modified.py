@@ -319,8 +319,8 @@ class FlappyBird(base.PyGameWrapper):
         """
         pipes = []
         for p in self.pipe_group:
-            if p.x + p.width/2 > self.player.pos_x  :
-                pipes.append((p, p.x + p.width/2 - self.player.pos_x ))
+            if p.x + p.width/2 + 5 > self.player.pos_x  :
+                pipes.append((p, p.x + p.width/2 - self.player.pos_x + 5 ))
 
         pipes.sort(key=lambda p: p[1])
 
