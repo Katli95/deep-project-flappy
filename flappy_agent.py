@@ -433,7 +433,7 @@ def run_game(agent, train, teaching_agent=None):
                 independenceCounter = 3
             if not train:
                 print(current_state)
-            if agent.updatesToNetwork > 0:
+            if agent.updatesToNetwork > 0 and independenceCounter <= 0:
                 if score not in scores:
                     scores[score] = 0
                 scores[score] += 1
