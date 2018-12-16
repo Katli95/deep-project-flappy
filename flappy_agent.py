@@ -366,7 +366,6 @@ def show_image(img):
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
-bestAverage = 0
 
 def run_game(agent, train, teaching_agent=None, max_episodes=None):
     """ Runs nb_episodes episodes of the game with agent picking the moves.
@@ -398,6 +397,7 @@ def run_game(agent, train, teaching_agent=None, max_episodes=None):
     else: 
         current_state = constructStateFromSingleFrame(processImage(env.getScreenGrayscale()))
 
+    highScore = 0
     score = 0
     scores = {}
     
@@ -438,15 +438,19 @@ def run_game(agent, train, teaching_agent=None, max_episodes=None):
 
         current_state = next_state
         
+        if score > highScore:
+            
+            pass
+
         # reset the environment if the game is over
         if env.game_over():
             if independenceCounter <= -10:
                 independenceCounter = 1
-            if not train:
-                if agent.modelType != "":
-                    print(current_state)
-                else:
-                    showState(current_state)
+            # if not train:
+            #     if agent.modelType != "":
+            #         print(current_state)
+            #     else:
+            #         showState(current_state)
             if not train or (agent.updatesToNetwork > 0 and independenceCounter <= 0):
                 if score not in scores:
                     scores[score] = 0
@@ -454,9 +458,6 @@ def run_game(agent, train, teaching_agent=None, max_episodes=None):
                 printScores(scores, frames)
 
                 currentAverage = logScore(scores, agent.updatesToNetwork)
-                if train:
-                    if currentAverage > bestAverage + 0.2:
-                        agent.saveModel("BestSoFar")
             
             episodes +=1 
             score = 0
