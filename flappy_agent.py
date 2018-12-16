@@ -58,15 +58,9 @@ class FlappyDeepQAgent:
             if model_type == "":
                 self.QNetwork = getQNetwork(learning_rate)
                 self.TargetQNetwork = getQNetwork(learning_rate)
-            elif model_type == "Advanced":
-                self.QNetwork = getAdvancedQNetwork(learning_rate)
-                self.TargetQNetwork = getAdvancedQNetwork(learning_rate)
             elif model_type == "Representational":
                 self.QNetwork = getRepresentationalQNetwork(learning_rate)
                 self.TargetQNetwork = getRepresentationalQNetwork(learning_rate)
-            elif model_type == "Speed":
-                self.QNetwork = getSpeedNetwork()
-                self.TargetQNetwork = getSpeedNetwork()
 
 
 
@@ -269,41 +263,6 @@ def getQNetwork(LEARNING_RATE):
     model.compile(loss='mse',optimizer=opt_adam)
     return model
 
-def getAdvancedQNetwork(LEARNING_RATE):
-    model = Sequential()
-
-    speed_layers = getSpeedLayers()
-
-    conv2 = Convolution2D(32, (20,10), strides=1, padding='same',input_shape=(img_rows,img_cols,1), kernel_initializer=initializer, activation="relu")
-    conv2 = Convolution2D(64, (4,4), strides=2, padding='same', kernel_initializer=initializer, activation="relu")(conv2)
-    conv2 = Convolution2D(64, (3,3), strides=1, padding='same', kernel_initializer=initializer, activation="relu")(conv2)
-
-    model.add(Activation('relu'))
-    model.add(Flatten())
-    model.add(Dense(512, kernel_initializer=initializer))
-    model.add(Activation('relu'))
-    model.add(Dense(2, kernel_initializer=initializer))
-    model.add(Activation("linear"))
-
-    opt_adam = adam(lr=LEARNING_RATE)
-    model.compile(loss='mse',optimizer=opt_adam)
-    return model
-
-def getSpeedLayers():
-    speed_layers = Convolution3D(32, (8,8,2,1), strides=4, padding='same',input_shape=(img_rows,img_cols,stacked_frames,1), kernel_initializer=initializer, activation="relu", name="identify_positions_1")
-    speed_layers = Convolution3D(32, (4,4,2,1), strides=4, padding='same', kernel_initializer=initializer, activation="relu", name="identify_positions_2")
-    speed_layers = Dense(128, activation="relu", name="calculate_speed")(speed_layers)
-    speed_layers = Dense(1, kernel_initializer=initializer, activation="linear")(speed_layers)
-    return speed_layers
-
-def getSpeedNetwork():
-    model = Sequential()
-    speed_layers = getSpeedLayers()
-    model.add(speed_layers)
-
-    model.compile(loss="mse", optimizer="rmsprop")
-    return model
-
 def getRepresentationalQNetwork(learning_rate):
     model = Sequential()
     model.add(Dense(18, input_shape=(6,), kernel_initializer="normal"))
@@ -367,7 +326,7 @@ def show_image(img):
     cv2.destroyAllWindows()
 
 
-def run_game(agent, train, teaching_agent=None, max_episodes=None):
+def run_game(agent, train, teaching_agent=None, max_episodes=None, ignore_fps=None):
     """ Runs nb_episodes episodes of the game with agent picking the moves.
         An episode of FlappyBird ends with the bird crashing into a pipe or going off screen.
     """
@@ -384,6 +343,9 @@ def run_game(agent, train, teaching_agent=None, max_episodes=None):
         dispScreen = True
         force_fps = False
 
+    if ignore_fps is not None:
+        force_fps = ignore_fps
+
     env = PLE(FlappyBird(), fps=30, display_screen=dispScreen, force_fps=force_fps, rng=None,
               reward_values=reward_values)
 
@@ -397,7 +359,7 @@ def run_game(agent, train, teaching_agent=None, max_episodes=None):
     else: 
         current_state = constructStateFromSingleFrame(processImage(env.getScreenGrayscale()))
 
-    highScore = 0
+    highScore = 100
     score = 0
     scores = {}
     
@@ -418,6 +380,8 @@ def run_game(agent, train, teaching_agent=None, max_episodes=None):
         reward = env.act(env.getActionSet()[action])
         if(reward > 0.5):
             score += 1
+            if score > highScore and independenceCounter <= 0 and train:
+                agent.saveModel(int(score))
 
         current_state_representation = env.game.getGameState()
 
@@ -437,10 +401,6 @@ def run_game(agent, train, teaching_agent=None, max_episodes=None):
                         next_state, env.game_over())
 
         current_state = next_state
-        
-        if score > highScore:
-            
-            pass
 
         # reset the environment if the game is over
         if env.game_over():
