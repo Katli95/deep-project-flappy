@@ -18,6 +18,7 @@ from keras.layers.core import Dense, Dropout, Activation, Flatten
 from keras.layers.convolutional import Convolution2D, Convolution3D
 from keras.layers import Concatenate
 from keras.optimizers import adam
+from keras import regularizers
 import tensorflow as tf
 
 reward_structures = {
@@ -27,7 +28,7 @@ reward_structures = {
 }
 
 class FlappyDeepQAgent:
-    def __init__(self, reward_values=reward_structures["improvedFlappyAgent"], learning_rate=1e-5, discount_factor = 0.95, initial_epsilon=1, epsilon_decay_rate=0.9998, final_epsilon=0.1, mini_epochs=7, training_episodes=20000, batch_size=32, reload_model=False, reload_weights=False, updates_to_network=0, model_type="", epsilon_decay_type="sinusoidal"):
+    def __init__(self, reward_values=reward_structures["improvedFlappyAgent"], learning_rate=1e-5, discount_factor = 0.95, initial_epsilon=1, epsilon_decay_rate=0.9998, final_epsilon=0.1, mini_epochs=7, training_episodes=20000, batch_size=32, reload_model=False, reload_weights=False, updates_to_network=0, model_type="", epsilon_decay_type="sinusoidal", reload_path=None):
         self.rewards = reward_values
         self.learningRate = learning_rate
         self.discountFactor = discount_factor
@@ -46,9 +47,13 @@ class FlappyDeepQAgent:
         self.updatesToNetwork = updates_to_network
         self.printCnt = 500
         self.modelType=model_type
-        if(reload_model):
-            self.QNetwork = load_model("BestSoFar-{}flappyBirdQNetworkModel.h5".format(model_type))
-            self.TargetQNetwork = load_model("BestSoFar-{}flappyBirdQNetworkModel.h5".format(model_type))
+        if reload_model:
+            if reload_path is not None:
+                self.QNetwork = load_model(reload_path)
+                self.TargetQNetwork = load_model(reload_path)
+            else:
+                self.QNetwork = load_model("BestSoFar-{}flappyBirdQNetworkModel.h5".format(model_type))
+                self.TargetQNetwork = load_model("BestSoFar-{}flappyBirdQNetworkModel.h5".format(model_type))
         else:
             if model_type == "":
                 self.QNetwork = getQNetwork(learning_rate)
@@ -57,8 +62,8 @@ class FlappyDeepQAgent:
                 self.QNetwork = getAdvancedQNetwork(learning_rate)
                 self.TargetQNetwork = getAdvancedQNetwork(learning_rate)
             elif model_type == "Representational":
-                self.QNetwork = getRepresentationalQNetwork()
-                self.TargetQNetwork = getRepresentationalQNetwork()
+                self.QNetwork = getRepresentationalQNetwork(learning_rate)
+                self.TargetQNetwork = getRepresentationalQNetwork(learning_rate)
             elif model_type == "Speed":
                 self.QNetwork = getSpeedNetwork()
                 self.TargetQNetwork = getSpeedNetwork()
@@ -108,7 +113,6 @@ class FlappyDeepQAgent:
             self.log("\tLoss: {}".format(loss))
 
             self.updatesToNetwork += 1
-            self.updateEpsilon()
 
             if self.updatesToNetwork % 1000 == 0:
                 self.saveModel("RoutineSave")
@@ -142,6 +146,7 @@ class FlappyDeepQAgent:
             q = self.predict(self.QNetwork, state)
             self.log("Exploiting!\m{}".format(*q))
             retval = np.argmax(q)
+        self.updateEpsilon()
         return retval
 
 
@@ -165,9 +170,11 @@ class FlappyDeepQAgent:
         self.TargetQNetwork.load_weights("{}flappyBirdQNetworkWeights.h5".format(self.modelType))
 
     def updateEpsilon(self):
+        if self.updatesToNetwork < self.observationThreshold:
+            return
         newVal = self.epsilon
         if self.epsilonDecayType == "sinusoidal":
-            newVal = self.initialEpsilon*(self.epsilonDecayRate**self.updatesToNetwork)*(1/2)*(1+np.cos((2*np.pi*(self.updatesToNetwork)*self.miniEpochs)/self.trainingEpisodes))
+            newVal = self.initialEpsilon*(self.epsilonDecayRate**(self.updatesToNetwork%(self.trainingEpisodes*1.4)))*(1/2)*(1+np.cos((2*np.pi*(self.updatesToNetwork%(self.trainingEpisodes*1.4))*self.miniEpochs)/self.trainingEpisodes))
         elif self.epsilon > self.final_epsilon:
             newVal = np.max([self.final_epsilon, self.epsilon - (self.initialEpsilon-self.final_epsilon)/20000])
         elif self.updatesToNetwork < 100000: 
@@ -211,11 +218,13 @@ class replayMemory:
         
 
     def getBatch(self, batch_size):
-        numItems = batch_size//3
+        numDeaths = batch_size//4
+        numPasses = batch_size//4
+        numTick = batch_size//2
 
-        passes = min(len(self.pipePasses),numItems)
-        deaths = min(len(self.terminals),numItems)
-        ticks = min(len(self.ticks),numItems)
+        passes = min(len(self.pipePasses),numPasses)
+        deaths = min(len(self.terminals),numDeaths)
+        ticks = min(len(self.ticks),numTick)
 
         while sum([passes, deaths, ticks]) < batch_size:
             if len(self.pipePasses) > passes:
@@ -238,17 +247,17 @@ class replayMemory:
             
         
 
-img_rows , img_cols = 84, 84
+img_rows , img_cols = 80, 80
 stacked_frames = 4
 initializer = normal_initializer(0, 0.01, 42)
 
 def getQNetwork(LEARNING_RATE):
     model = Sequential()
-    model.add(Convolution2D(32, (8,8), strides=4, padding='same',input_shape=(img_rows,img_cols,stacked_frames), kernel_initializer=initializer))
+    model.add(Convolution2D(32, (8,8), strides=4, padding='same',input_shape=(img_rows,img_cols,stacked_frames), kernel_initializer=initializer, kernel_regularizer=regularizers.l2(0.01)))
     model.add(Activation('relu'))
-    model.add(Convolution2D(64, (4,4), strides=2, padding='same', kernel_initializer=initializer))
+    model.add(Convolution2D(64, (4,4), strides=2, padding='same', kernel_initializer=initializer, kernel_regularizer=regularizers.l2(0.01)))
     model.add(Activation('relu'))
-    model.add(Convolution2D(64, (3,3), strides=1, padding='same', kernel_initializer=initializer))
+    model.add(Convolution2D(64, (3,3), strides=1, padding='same', kernel_initializer=initializer, kernel_regularizer=regularizers.l2(0.01)))
     model.add(Activation('relu'))
     model.add(Flatten())
     model.add(Dense(512, kernel_initializer=initializer))
@@ -295,7 +304,7 @@ def getSpeedNetwork():
     model.compile(loss="mse", optimizer="rmsprop")
     return model
 
-def getRepresentationalQNetwork():
+def getRepresentationalQNetwork(learning_rate):
     model = Sequential()
     model.add(Dense(18, input_shape=(6,), kernel_initializer="normal"))
     model.add(Activation("relu"))
@@ -305,7 +314,9 @@ def getRepresentationalQNetwork():
     model.add(Activation("relu"))
     model.add(Dense(2, kernel_initializer="normal"))
 
-    model.compile(loss="mse", optimizer="rmsprop")
+    adm = adam(lr=learning_rate)
+
+    model.compile(loss="mse", optimizer=adm)
     return model
 
 def parseStateRepresentation(rawState):
@@ -327,7 +338,7 @@ def processImage(rawImg):
     # show_image(img)
     img = rawImg[0:288, 0:412]
     # img = np.zeros((img_rows, img_cols))
-    img = cv2.resize(img, (img_rows,img_cols))
+    img = cv2.resize(img, (img_rows,img_cols), cv2.INTER_AREA)
     img = cv2.flip(img, 0)
     rows,cols = img.shape
 
@@ -335,10 +346,11 @@ def processImage(rawImg):
     img = cv2.warpAffine(img,M,(cols,rows))
     # show_image(img)
     # show_image(img)
-    normImg = img / 255
-    # cv2.normalize(img, normImg, 0, 1)
-    # _, normImg = cv2.threshold(img,1,255,cv2.THRESH_BINARY)
+    _, normImg = cv2.threshold(img,1,255,cv2.THRESH_BINARY)
+    # normImg = cv2.GaussianBlur(normImg, (5,5), 0)
     # show_image(normImg)
+    # normImg = img / 255
+    # cv2.normalize(img, normImg, 0, 1)
     return normImg
 
 def showState(state):
@@ -356,12 +368,13 @@ def show_image(img):
 
 bestAverage = 0
 
-def run_game(agent, train, teaching_agent=None):
+def run_game(agent, train, teaching_agent=None, max_episodes=None):
     """ Runs nb_episodes episodes of the game with agent picking the moves.
         An episode of FlappyBird ends with the bird crashing into a pipe or going off screen.
     """
-    
     independenceCounter = 3
+    if teaching_agent is None:
+        independenceCounter = 0
 
     if train:
         reward_values = agent.reward_values()
@@ -427,22 +440,32 @@ def run_game(agent, train, teaching_agent=None):
         
         # reset the environment if the game is over
         if env.game_over():
-            episodes +=1 
-            independenceCounter -=1
             if independenceCounter <= -10:
-                independenceCounter = 3
+                independenceCounter = 1
             if not train:
-                print(current_state)
-            if agent.updatesToNetwork > 0 and independenceCounter <= 0:
+                if agent.modelType != "":
+                    print(current_state)
+                else:
+                    showState(current_state)
+            if not train or (agent.updatesToNetwork > 0 and independenceCounter <= 0):
                 if score not in scores:
                     scores[score] = 0
                 scores[score] += 1
                 printScores(scores, frames)
 
                 currentAverage = logScore(scores, agent.updatesToNetwork)
-                if currentAverage > bestAverage + 0.2:
-                    agent.saveModel("BestSoFar")
+                if train:
+                    if currentAverage > bestAverage + 0.2:
+                        agent.saveModel("BestSoFar")
+            
+            episodes +=1 
             score = 0
+
+            if max_episodes == episodes:
+                break
+
+            if teaching_agent is not None:
+                independenceCounter -=1
             
             env.reset_game()
             current_state_representation = env.game.getGameState()
@@ -470,13 +493,13 @@ def printScores(scores, frames):
     pprint(percentage)
     print("Total frames : ", frames)
 
-def logScore(scores, frames):
+def logScore(scores, updatesToNetwork):
         with open("scores.csv", "a", newline='') as file:
             writer = csv.writer(file)
             if os.stat("scores.csv").st_size == 0:
                 writer.writerow(['Updates_To_Network',"Average_Score"])
             avg = getAverageOfScores(scores)
-            writer.writerow([frames,avg])
+            writer.writerow([updatesToNetwork,avg])
             return avg
         
 def getAverageOfScores(scores):
