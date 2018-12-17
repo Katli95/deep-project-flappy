@@ -1,3 +1,12 @@
+'''
+Adventures in Flappy Bird via Deep Learning 
+-Ketill Antoníus Ágústsson, Reykjavík University
+
+
+Some of the code was inspired by this github repo: https://github.com/yanpanlau/Keras-FlappyBird/blob/master/qlearn.py
+I found while researching. 
+'''
+
 from ple.games.flappybird import FlappyBird
 from ple import PLE
 import pygame
