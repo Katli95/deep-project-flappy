@@ -1,2 +1,0 @@
-6x18-12-8-BestSoFar-RepresentationalflappyBirdQNetworkModel
-    State = np.array([[x_diff, y_diff_bot, y_diff_top, player_vel,  next_next_pipe_mid, float(isUnderPipe)]])
